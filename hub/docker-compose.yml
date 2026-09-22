@@ -63,7 +63,11 @@ services:
     image: opendronemap/clusterodm
     container_name: clusterodm
     ports:
-      - "3000:3000"   # porta que o WebODM usa para enviar tarefas de processamento
+      # A porta 3000 (onde o WebODM manda as tarefas) NÃO precisa ser
+      # publicada para o host: o webapp fala com "clusterodm:3000" direto
+      # pela rede interna do Docker. Deixar sem publicar evita conflito com
+      # qualquer outro programa/container que já use a porta 3000 nesta
+      # máquina.
       - "8080:8080"   # porta de administração (linha de comando / telnet)
       - "10000:10000" # painel de administração via navegador
     restart: unless-stopped

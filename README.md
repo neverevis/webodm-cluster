@@ -228,6 +228,27 @@ docker compose down -v
 - **`./start.sh` diz que Docker Compose não foi encontrado:**
   - Reabra o terminal depois de instalar o Docker, ou rode `docker compose
     version` para conferir se foi instalado certo.
+- **Erro `port is already allocated` (porta 3000) ao subir o hub, ou
+  `register-node.sh` diz "Conexão recusada" na porta 8080:**
+  - Normalmente é porque essa máquina já tem outro programa/container
+    (por exemplo, outro projeto Docker) usando a porta 3000. Como a porta
+    3000 do ClusterODM não precisa ficar exposta para fora (o WebODM já
+    fala com ele pela rede interna do Docker), o `hub/docker-compose.yml`
+    deste repositório não publica mais essa porta — se você já tinha
+    clonado antes dessa correção, atualize com `git pull` e recrie o
+    container:
+    ```bash
+    cd webodm-cluster/hub
+    git pull
+    docker compose up -d --force-recreate clusterodm
+    ```
+  - Para descobrir o que está usando uma porta no seu computador (troque
+    3000 pela porta que quiser checar):
+    ```bash
+    docker ps -a --format "table {{.Names}}\t{{.Ports}}"
+    ```
+    Se aparecer algum container seu de outro projeto publicando aquela
+    porta, é ele o culpado.
 - **Quero ver os nós registrados ou remover um manualmente:** veja
   "Administração avançada" abaixo.
 
