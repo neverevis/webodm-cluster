@@ -25,6 +25,18 @@ if [ ! -f .env ]; then
   echo "Arquivo .env criado com uma chave secreta gerada automaticamente."
 fi
 
+# O IP desta máquina pode mudar (DHCP), então atualizamos a cada execução.
+# Ele é usado pelo ClusterODM para avisar os workers remotos como alcançá-lo
+# durante uma tarefa dividida entre várias máquinas (opção "split").
+IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+if [ -z "$IP" ]; then
+  echo "Aviso: não consegui detectar o IP desta máquina automaticamente."
+  echo "O recurso de dividir uma tarefa entre workers (split) pode não funcionar"
+  echo "até você definir HUB_IP manualmente no arquivo .env."
+else
+  awk -v ip="$IP" '{ if ($0 ~ /^HUB_IP=/) print "HUB_IP="ip; else print $0 }' .env > .env.tmp && mv .env.tmp .env
+fi
+
 echo "Subindo os containers (WebODM + ClusterODM + NodeODM local)..."
 $DC up -d
 
@@ -56,7 +68,8 @@ fi
 
 PORT=$(grep -E '^WO_PORT=' .env | cut -d= -f2)
 PORT=${PORT:-8000}
-IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+CLUSTERODM_PORT=$(grep -E '^CLUSTERODM_PORT=' .env | cut -d= -f2)
+CLUSTERODM_PORT=${CLUSTERODM_PORT:-3001}
 
 echo ""
 echo "=========================================================="
@@ -68,4 +81,8 @@ echo "3) Em Configurações > Nós de processamento, adicione um nó com:"
 echo "   Endereço: clusterodm   |   Porta: 3000"
 echo "4) Painel do ClusterODM (mostra os nós conectados):"
 echo "   http://localhost:10000  (ou http://${IP:-<ip-deste-computador>}:10000)"
+echo "5) Para várias máquinas processarem A MESMA tarefa em paralelo, use a"
+echo "   opção 'split' ao criar a tarefa no WebODM - veja o README.md."
+echo "   Para isso funcionar com workers em outras máquinas, libere a porta"
+echo "   ${CLUSTERODM_PORT} no firewall deste computador (o hub)."
 echo "=========================================================="

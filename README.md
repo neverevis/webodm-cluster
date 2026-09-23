@@ -35,19 +35,21 @@ Tudo roda em Docker — não precisa instalar Python, ODM, nem nada disso à mã
 - Cada computador "worker" só precisa rodar o **NodeODM** — não precisa nem
   abrir navegador nele.
 
-### O que esse "cluster" realmente distribui
+### O que esse "cluster" distribui
 
-Isso distribui **tarefas inteiras** entre as máquinas: se você criar 3 projetos
-(tasks) ao mesmo tempo, cada um pode ir para um computador diferente, e todos
-processam em paralelo. Isso já ajuda bastante quando você tem várias máquinas
-fracas em vez de uma forte.
+Tem dois jeitos de distribuir trabalho entre as máquinas, e os dois já vêm
+prontos neste repositório:
 
-O que isso **não** faz por padrão: pegar **um único** conjunto de fotos muito
-grande e dividir automaticamente o processamento dele entre várias máquinas
-(isso existe no ClusterODM, chama "split-merge", mas exige armazenamento
-compatível com S3 configurado à parte — não está incluso aqui para manter a
-coisa simples). Para testes com poucas dezenas de fotos por vez, o que está
-aqui já resolve.
+1. **Tarefas inteiras em paralelo:** se você criar 2 ou 3 projetos ao mesmo
+   tempo, cada um pode ir para um computador diferente, processando em
+   paralelo. É o que acontece automaticamente, sem precisar configurar nada.
+2. **Uma única tarefa dividida entre várias máquinas ("split"):** o ClusterODM
+   também sabe pegar **um conjunto de fotos só** e dividir o processamento
+   dele entre todos os workers disponíveis ao mesmo tempo, juntando o
+   resultado no final. Isso é o que você quer quando tem várias máquinas
+   fracas e quer que elas processem **a mesma tarefa** juntas, mais rápido.
+   Não é automático por padrão — você escolhe isso na hora de criar a tarefa
+   (ligando a opção "split"). Veja o [Passo 5](#passo-5--processar-uma-tarefa-em-várias-máquinas-ao-mesmo-tempo-split).
 
 ## O que cada computador precisa
 
@@ -160,12 +162,55 @@ todos com status **online**.
 > remotos **precisam ser registrados de novo** rodando `./register-node.sh
 > <ip>` para cada um.
 
-## Passo 5 — Usar
+## Passo 5 — Usar (tarefa simples, processa em um nó só)
 
 No WebODM (`http://IP-DO-HUB:8000`), crie um projeto, suba as fotos e inicie o
 processamento normalmente. O WebODM manda a tarefa para o ClusterODM, que
 escolhe automaticamente uma máquina livre (hub ou algum worker) para
 processar. Você acompanha o progresso na tela do WebODM, como de costume.
+
+Isso processa a tarefa inteira em **uma única máquina**. Se você quer que
+**todos os workers ajudem na mesma tarefa ao mesmo tempo**, veja o próximo
+passo.
+
+## Passo 6 — Processar uma tarefa em várias máquinas ao mesmo tempo (split)
+
+Esse é o recurso que faz várias máquinas fracas dividirem **o mesmo**
+conjunto de fotos entre si, cada uma processando um pedaço em paralelo, e o
+ClusterODM junta tudo no final. Já está tudo configurado nos scripts deste
+repositório (o hub avisa o próprio IP pro ClusterODM automaticamente) — você
+só precisa ligar essa opção na hora de criar a tarefa:
+
+1. No WebODM, crie o projeto e suba as fotos normalmente.
+2. Antes de clicar em "Start Processing", abra as **Opções de processamento**
+   (o ícone de engrenagem/opções ao lado do botão de iniciar).
+3. No campo de busca das opções, digite `split` e você vai ver duas opções:
+   - **split**: quantas fotos, no máximo, cada "pedaço" (submodel) deve ter.
+     Isso precisa ser **menor que o total de fotos** da tarefa para realmente
+     dividir. Exemplo: se você subiu 20 fotos, coloque `split = 8` (ou 10)
+     para forçar 2–3 pedaços, um pra cada worker.
+   - **split-overlap**: sobreposição entre os pedaços, em metros (pode
+     deixar no padrão para um teste rápido).
+4. Inicie o processamento. Agora, no painel do ClusterODM
+   (`http://IP-DO-HUB:10000`), você deve ver a fila (`Queue`) subir em mais
+   de um nó ao mesmo tempo — é o sinal de que os workers estão processando a
+   mesma tarefa juntos.
+
+**Dica:** para não ter que digitar isso toda vez, salve essas opções como um
+**preset** (o WebODM tem um botão de salvar/gerenciar presets de opções na
+mesma tela) — daí é só selecionar o preset nas próximas tarefas.
+
+> **Aviso para quem está testando com poucas fotos:** dividir datasets
+> pequenos (poucas dezenas de fotos) em pedaços tende a deixar o resultado
+> final com qualidade pior (cada pedaço tem pouca sobreposição entre si).
+> Isso é normal e esperado no seu experimento — o objetivo aqui é ver as
+> máquinas processando em paralelo, não necessariamente ter um modelo 3D
+> perfeito. Em datasets grandes de verdade (centenas/milhares de fotos), usar
+> `split` com valores maiores (ex: 200+) é uma prática real e recomendada.
+>
+> Também é preciso ter mais de um nó **online e livre** para o split
+> realmente rodar em paralelo — com 2 workers, 2 pedaços processam ao mesmo
+> tempo; o resto espera na fila.
 
 ## Parar tudo
 
@@ -228,27 +273,35 @@ docker compose down -v
 - **`./start.sh` diz que Docker Compose não foi encontrado:**
   - Reabra o terminal depois de instalar o Docker, ou rode `docker compose
     version` para conferir se foi instalado certo.
-- **Erro `port is already allocated` (porta 3000) ao subir o hub, ou
-  `register-node.sh` diz "Conexão recusada" na porta 8080:**
-  - Normalmente é porque essa máquina já tem outro programa/container
-    (por exemplo, outro projeto Docker) usando a porta 3000. Como a porta
-    3000 do ClusterODM não precisa ficar exposta para fora (o WebODM já
-    fala com ele pela rede interna do Docker), o `hub/docker-compose.yml`
-    deste repositório não publica mais essa porta — se você já tinha
-    clonado antes dessa correção, atualize com `git pull` e recrie o
-    container:
-    ```bash
-    cd webodm-cluster/hub
-    git pull
-    docker compose up -d --force-recreate clusterodm
-    ```
-  - Para descobrir o que está usando uma porta no seu computador (troque
-    3000 pela porta que quiser checar):
+- **Erro `port is already allocated` ao subir o hub:**
+  - Alguma porta que o `docker-compose.yml` quer usar já está ocupada por
+    outro programa/container nessa máquina. Descubra qual com:
     ```bash
     docker ps -a --format "table {{.Names}}\t{{.Ports}}"
     ```
-    Se aparecer algum container seu de outro projeto publicando aquela
-    porta, é ele o culpado.
+    Se for a porta **3001** (a porta pública do ClusterODM) que está em
+    conflito, edite `hub/.env` e mude `CLUSTERODM_PORT` para outro número
+    (ex: `3002`), depois rode `./start.sh` de novo.
+- **`register-node.sh` diz "Conexão recusada" na porta 8080:**
+  - Provavelmente o container `clusterodm` não terminou de subir (ou caiu por
+    causa de um conflito de porta, veja o item acima). Rode
+    `docker compose ps` na pasta `hub/` e confira se `clusterodm` está `Up`.
+- **O `split` não está dividindo a tarefa entre os workers (só um nó
+  processa, ou os outros ficam "presos"/a tarefa trava):**
+  - Confira se `hub/.env` tem um `HUB_IP=` preenchido com o IP correto desta
+    máquina (o `start.sh` preenche sozinho a cada execução). Se o IP mudou
+    recentemente (por exemplo o roteador trocou o IP da máquina), rode
+    `./start.sh` de novo para atualizar, depois `docker compose up -d
+    --force-recreate clusterodm`.
+  - Libere a porta do ClusterODM (padrão **3001**) no firewall do hub, para
+    os workers remotos conseguirem "telefonar de volta" durante o split:
+    ```bash
+    sudo ufw allow 3001/tcp
+    ```
+    (rode isso na máquina hub; se você mudou `CLUSTERODM_PORT`, libere a
+    porta que você escolheu)
+  - Confira se o valor de `split` é **menor** que o número de fotos da
+    tarefa — se for igual ou maior, não há divisão.
 - **Quero ver os nós registrados ou remover um manualmente:** veja
   "Administração avançada" abaixo.
 

@@ -62,12 +62,18 @@ services:
   clusterodm:
     image: opendronemap/clusterodm
     container_name: clusterodm
+    # --public-address é necessário para o recurso de "split" funcionar:
+    # é o endereço que o ClusterODM informa para os workers remotos "telefonarem
+    # de volta" durante uma tarefa dividida (split-merge) entre várias máquinas.
+    # O webapp (WebODM) continua falando com "clusterodm:3000" direto pela rede
+    # interna do Docker - isso aqui é só para as máquinas workers conseguirem
+    # alcançar o ClusterODM pela rede local.
+    command: ["--public-address", "http://${HUB_IP}:${CLUSTERODM_PORT:-3001}"]
     ports:
-      # A porta 3000 (onde o WebODM manda as tarefas) NÃO precisa ser
-      # publicada para o host: o webapp fala com "clusterodm:3000" direto
-      # pela rede interna do Docker. Deixar sem publicar evita conflito com
-      # qualquer outro programa/container que já use a porta 3000 nesta
-      # máquina.
+      # Porta pública do ClusterODM (não usamos a 3000 direto, de propósito,
+      # pra evitar conflito com outros programas/containers comuns que já
+      # costumam usar a porta 3000 nesta máquina).
+      - "${CLUSTERODM_PORT:-3001}:3000"
       - "8080:8080"   # porta de administração (linha de comando / telnet)
       - "10000:10000" # painel de administração via navegador
     restart: unless-stopped
